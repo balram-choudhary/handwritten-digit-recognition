@@ -1,6 +1,6 @@
 # Handwritten Digit Recognition
 
-A polished Streamlit app that recognizes one handwritten digit (0–9) with a CNN trained on Keras's MNIST dataset. Draw on the canvas or upload a PNG/JPG image.
+A polished Streamlit app that recognizes single digits and short, single-line numbers with a CNN trained on Keras's MNIST dataset. It separates digits from left to right, then classifies each with the same model. Draw on the canvas or upload a PNG/JPG image.
 
 ## Run on Windows
 
@@ -23,6 +23,8 @@ streamlit run app.py
 
 Put these project files at the root of a GitHub repository, including `app.py`, `requirements.txt`, and the trained `mnist_cnn.keras` file. Do not upload `.venv`. In Streamlit Community Cloud, create an app from the repository and choose `app.py` on the `main` branch.
 
+**Choose Python 3.13 in the deployment's Advanced settings.** TensorFlow 2.21.0 has wheels through Python 3.13, but not Python 3.14. The current Cloud app was created with Python 3.14, so simply pushing code or restarting it will not fix dependency installation. Streamlit Community Cloud does not let you change an app's Python version after deployment; deploy a new app with Python 3.13, or delete and redeploy the existing app with the same custom URL and Python 3.13 selected.
+
 `mnist_cnn.keras` is intentionally included in Git. Without it the deployed app displays a setup message and predictions stay disabled until you train and add the model.
 
 ## Project files
@@ -37,4 +39,4 @@ Put these project files at the root of a GitHub repository, including `app.py`, 
 
 ## Notes
 
-The app imports TensorFlow and loads the model only when a prediction is requested, then caches the model for the running session. The image is converted to grayscale, foreground is isolated, and the digit is resized and centered to 28 × 28 before prediction. App code can reduce its own initialization work, but it cannot prevent Streamlit Community Cloud from sleeping or cold-starting an app.
+The app imports TensorFlow and loads the model only when a prediction is requested, then caches the model for the running session. It segments a single-line number at clear vertical gaps, converts each digit to grayscale, and centers each one in a 28 × 28 input. Leave space between handwritten digits; touching or unusually connected digits can be ambiguous. App code cannot prevent Streamlit Community Cloud from sleeping or cold-starting an app.

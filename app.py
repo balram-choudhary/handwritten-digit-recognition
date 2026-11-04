@@ -41,6 +41,7 @@ st.markdown(
       .prediction-card { min-height: 210px; display: flex; flex-direction: column; justify-content: center; align-items: center; border: 1px solid #28516a; border-radius: 16px; background: linear-gradient(145deg, #142b3a, #101823 72%); }
       .prediction-label { color: #9eb5c8; font-size: .75rem; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
       .prediction-digit { color: white; font-size: 6.2rem; font-weight: 750; line-height: 1.1; }
+      .prediction-digit--number { font-size: 3.6rem; letter-spacing: .08em; }
       .prediction-confidence { color: #8bd8fa; font-size: 1rem; }
       .probability-chart { display: grid; gap: .55rem; padding: .85rem; border: 1px solid var(--line); border-radius: 12px; background: #0d151fcc; }
       .probability-row { display: grid; grid-template-columns: 1.5rem minmax(0, 1fr) 6.2rem; align-items: center; gap: .7rem; min-width: 0; padding: .28rem .38rem; border: 1px solid transparent; border-radius: 8px; }
@@ -56,6 +57,7 @@ st.markdown(
       @media (max-width: 700px) {
         .block-container { padding: 1.2rem 1rem 1.5rem; }
         .prediction-digit { font-size: 4.5rem; }
+        .prediction-digit--number { font-size: 2.8rem; }
         .probability-chart { gap: .38rem; padding: .65rem; }
         .probability-row { grid-template-columns: 1.25rem minmax(0, 1fr) 5.8rem; gap: .48rem; padding: .25rem .25rem; }
         .probability-track { height: .52rem; }
@@ -111,6 +113,65 @@ def to_mnist_image(image: Image.Image) -> np.ndarray:
     return np.asarray(canvas, dtype=np.float32) / 255.0
 
 
+def _split_wide_digit_region(region: np.ndarray, depth: int = 0) -> list[np.ndarray]:
+    """Try a conservative vertical-valley split for clearly touching digits."""
+    ys, xs = np.nonzero(region)
+    if xs.size == 0:
+        return []
+    cropped = region[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
+    height, width = cropped.shape
+    if depth >= 8 or width <= height * 1.15:
+        return [cropped]
+
+    projection = np.count_nonzero(cropped, axis=0)
+    guard = max(1, int(height * 0.22))
+    if width - 2 * guard < 1:
+        return [cropped]
+
+    candidates = projection[guard:width - guard]
+    valley_floor = int(candidates.min())
+    if valley_floor > projection.max() * 0.22:
+        return [cropped]
+
+    valley_threshold = max(valley_floor, int(projection.max() * 0.12))
+    valley_columns = np.flatnonzero(candidates <= valley_threshold) + guard
+    center = (width - 1) / 2
+    split_at = int(valley_columns[np.argmin(np.abs(valley_columns - center))])
+    left = cropped[:, :split_at]
+    right = cropped[:, split_at:]
+    if left.size == 0 or right.size == 0 or not np.any(left) or not np.any(right):
+        return [cropped]
+
+    return _split_wide_digit_region(left, depth + 1) + _split_wide_digit_region(right, depth + 1)
+
+
+def split_digit_regions(image: Image.Image) -> list[Image.Image]:
+    """Separate a single-line number into left-to-right digit images."""
+    grayscale = ImageOps.grayscale(image)
+    pixels = np.asarray(grayscale, dtype=np.uint8)
+    border = np.concatenate((pixels[0], pixels[-1], pixels[:, 0], pixels[:, -1]))
+    if np.median(border) > 127:
+        pixels = 255 - pixels
+
+    foreground = np.where(pixels > 35, pixels, 0).astype(np.uint8)
+    ys, xs = np.nonzero(foreground)
+    if xs.size == 0:
+        return []
+
+    foreground = foreground[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
+    active_columns = np.flatnonzero(np.any(foreground > 0, axis=0))
+    runs = np.split(active_columns, np.flatnonzero(np.diff(active_columns) > 1) + 1)
+
+    regions = []
+    for run in runs:
+        if run.size == 0:
+            continue
+        region = foreground[:, run[0]:run[-1] + 1]
+        regions.extend(_split_wide_digit_region(region))
+
+    return [Image.fromarray(region) for region in regions]
+
+
 def build_probability_chart(scores: np.ndarray) -> str:
     """Render validated model probabilities as a lightweight HTML/CSS chart."""
     values = [float(score) for score in scores]
@@ -151,17 +212,26 @@ def build_probability_chart(scores: np.ndarray) -> str:
 
 
 def run_prediction(image: Image.Image, source: str) -> None:
-    processed = to_mnist_image(image)
-    if not np.any(processed):
+    digit_regions = split_digit_regions(image)
+    if not digit_regions:
         st.warning("I couldn’t find a digit in that image. Try a darker, clearer mark.")
+        return
+    if len(digit_regions) > 12:
+        st.warning("Please use a single-line input with 12 digits or fewer.")
+        return
+
+    processed_digits = [to_mnist_image(region) for region in digit_regions]
+    if any(not np.any(digit) for digit in processed_digits):
+        st.warning("One of the digit segments was blank. Try writing with a little more space between digits.")
         return
 
     with st.spinner("Loading the CNN and predicting…"):
         model = load_model()
-        scores = model(processed[np.newaxis, ..., np.newaxis], training=False).numpy()[0]
+        batch = np.stack(processed_digits)[..., np.newaxis]
+        scores = model(batch, training=False).numpy()
 
     st.session_state["prediction"] = {
-        "image": processed,
+        "images": processed_digits,
         "scores": scores,
         "source": source,
     }
@@ -190,8 +260,8 @@ draw_col, upload_col = st.columns(2, gap="large")
 
 with draw_col:
     with st.container(border=True):
-        st.subheader("Draw a digit")
-        st.markdown('<div class="panel-note">Use the black pen on the white canvas. The canvas toolbar includes a clear control.</div>', unsafe_allow_html=True)
+        st.subheader("Draw digits or a number")
+        st.markdown('<div class="panel-note">Write digits from left to right and leave a small gap between them. Use the canvas toolbar to clear.</div>', unsafe_allow_html=True)
         canvas_result = st_canvas(
             fill_color="rgba(255, 255, 255, 0)",
             stroke_width=20,
@@ -233,7 +303,7 @@ with draw_col:
 with upload_col:
     with st.container(border=True):
         st.subheader("Upload an image")
-        st.markdown('<div class="panel-note">Choose a PNG or JPG image containing one clearly visible digit.</div>', unsafe_allow_html=True)
+        st.markdown('<div class="panel-note">Choose a PNG or JPG with one clear, single-line number. Leave a small gap between digits.</div>', unsafe_allow_html=True)
         uploaded_file = st.file_uploader(
             "Choose a PNG or JPG image",
             type=["png", "jpg", "jpeg"],
@@ -250,7 +320,7 @@ with upload_col:
                 st.caption(f"Image details: {error}")
 
         predict_upload = st.button(
-            "Predict uploaded digit",
+            "Predict image",
             use_container_width=True,
             disabled=not model_ready or source_image is None,
             key="predict_upload",
@@ -267,31 +337,65 @@ with upload_col:
 prediction = st.session_state.get("prediction")
 if prediction:
     scores = np.asarray(prediction["scores"], dtype=np.float32)
-    predicted_digit = int(np.argmax(scores))
-    confidence = float(scores[predicted_digit])
+    if scores.ndim == 1:
+        scores = scores[np.newaxis, :]
+    input_digits = prediction.get("images")
+    if input_digits is None:
+        input_digits = [prediction["image"]]
+    predicted_digits = [int(np.argmax(digit_scores)) for digit_scores in scores]
+    predicted_number = "".join(str(digit) for digit in predicted_digits)
+    digit_count = len(predicted_digits)
 
     st.write("")
     st.divider()
     st.subheader("Prediction")
     result_col, input_col, probabilities_col = st.columns([1, 1, 2], gap="large")
     with result_col:
+        result_label = "Predicted digit" if digit_count == 1 else "Predicted number"
+        result_detail = (
+            f"{float(scores[0, predicted_digits[0]]):.1%} confidence"
+            if digit_count == 1
+            else f"{digit_count} digits · confidence shown per position"
+        )
+        result_class = "prediction-digit" if digit_count == 1 else "prediction-digit prediction-digit--number"
         st.markdown(
-            f'<div class="prediction-card"><div class="prediction-label">Predicted digit</div>'
-            f'<div class="prediction-digit">{predicted_digit}</div>'
-            f'<div class="prediction-confidence">{confidence:.1%} confidence</div></div>',
+            f'<div class="prediction-card"><div class="prediction-label">{html.escape(result_label)}</div>'
+            f'<div class="{result_class}">{html.escape(predicted_number)}</div>'
+            f'<div class="prediction-confidence">{html.escape(result_detail)}</div></div>',
             unsafe_allow_html=True,
         )
     with input_col:
-        st.write("**Model input · 28 × 28**")
-        st.image(prediction["image"], width=170, clamp=True)
-        st.caption("The input is converted to grayscale, centered, and scaled to 0–1.")
+        st.write("**Segmented model inputs · 28 × 28 each**" if digit_count > 1 else "**Model input · 28 × 28**")
+        if digit_count == 1:
+            st.image(input_digits[0], width=170, clamp=True)
+        else:
+            tile_size, tile_gap = 48, 4
+            preview = Image.new("L", (digit_count * tile_size + (digit_count - 1) * tile_gap, tile_size), 0)
+            for index, digit_image in enumerate(input_digits):
+                tile = Image.fromarray((np.clip(digit_image, 0.0, 1.0) * 255).astype(np.uint8))
+                tile = tile.resize((tile_size, tile_size), Image.Resampling.NEAREST)
+                preview.paste(tile, (index * (tile_size + tile_gap), 0))
+            st.image(preview, width=min(420, preview.width))
+            st.caption("Segments are read from left to right.")
+        if digit_count == 1:
+            st.caption("The input is converted to grayscale, centered, and scaled to 0–1.")
     with probabilities_col:
-        st.write("**Probability by digit**")
-        st.markdown(build_probability_chart(scores), unsafe_allow_html=True)
+        if digit_count == 1:
+            st.write("**Probability by digit**")
+            st.markdown(build_probability_chart(scores[0]), unsafe_allow_html=True)
+        else:
+            st.write("**Per-position probabilities**")
+            for index, (digit, digit_scores) in enumerate(zip(predicted_digits, scores)):
+                confidence = float(digit_scores[digit])
+                with st.expander(
+                    f"Position {index + 1} · predicted {digit} · {confidence:.1%} confidence",
+                    expanded=index == 0,
+                ):
+                    st.markdown(build_probability_chart(digit_scores), unsafe_allow_html=True)
 
 st.markdown(
     '<div class="footer-note">Dataset: MNIST (28 × 28 grayscale digits) &nbsp;·&nbsp; '
-    'Model: CNN with 10 output classes &nbsp;·&nbsp; Predictions work best with one clear, centered digit.</div>',
+    'Model: CNN with 10 output classes &nbsp;·&nbsp; Use clear single-line writing and leave gaps between digits.</div>',
     unsafe_allow_html=True,
 )
 

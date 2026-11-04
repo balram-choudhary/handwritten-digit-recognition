@@ -2,7 +2,7 @@
 
 ## 1. Aim
 
-Build a program that recognizes a handwritten digit (0–9) from an image using a convolutional neural network.
+Build a program that recognizes handwritten digits (0–9) from a drawing or image using a convolutional neural network. For short, single-line numbers, separate the digit regions and classify them left to right.
 
 ## 2. Dataset
 
@@ -12,7 +12,7 @@ The project uses MNIST, available through `keras.datasets.mnist`. It contains 70
 
 - Convert pixel values from 0–255 to the 0–1 range.
 - Add a channel dimension so images have the shape 28 × 28 × 1.
-- During prediction, convert the drawing or uploaded image to grayscale, separate the digit from its background, resize it to fit, and center it on a 28 × 28 black image.
+- During prediction, convert the drawing or uploaded image to grayscale, isolate foreground, and split a single-line number at vertical gaps. Resize and center each digit on its own 28 × 28 black image before classification.
 
 ## 4. CNN model
 
@@ -45,4 +45,4 @@ On Windows, double-click `run_windows.bat`. The app uses the saved `mnist_cnn.ke
 
 ## 7. Conclusion
 
-This project demonstrates how a CNN can learn visual patterns from labeled digit images and use those patterns to classify new examples. The web app makes it possible to try the model with a drawing or uploaded image. Its predictions may be less reliable for handwriting that differs from MNIST or images containing multiple digits.
+This project demonstrates how a CNN can learn visual patterns from labeled digit images and use those patterns to classify new examples. The web app supports individual digits and separated digits in a single-line number. Its predictions may be less reliable for handwriting that differs from MNIST, especially when digits touch or overlap.
