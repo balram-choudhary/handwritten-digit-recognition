@@ -8,7 +8,6 @@ _APP_SCRIPT_STARTED_AT = time.perf_counter()
 import numpy as np
 import streamlit as st
 from PIL import Image, ImageOps
-from streamlit_drawable_canvas import st_canvas
 
 MODEL_PATH = Path(__file__).parent / "mnist_cnn.keras"
 
@@ -262,22 +261,44 @@ with draw_col:
     with st.container(border=True):
         st.subheader("Draw digits or a number")
         st.markdown('<div class="panel-note">Write digits from left to right and leave a small gap between them. Use the canvas toolbar to clear.</div>', unsafe_allow_html=True)
-        canvas_result = st_canvas(
-            fill_color="rgba(255, 255, 255, 0)",
-            stroke_width=20,
-            stroke_color="#000000",
-            background_color="#FFFFFF",
-            height=300,
-            width=300,
-            drawing_mode="freedraw",
-            return_image_data=True,
-            key="digit_canvas",
-        )
+        canvas_result = None
+        canvas_error = None
+        canvas_setup_started_at = time.perf_counter()
+        try:
+            # Import only when the draw panel is reached, so a component import
+            # failure cannot prevent the page header and upload flow from rendering.
+            from streamlit_drawable_canvas import st_canvas
+
+            canvas_result = st_canvas(
+                fill_color="rgba(255, 255, 255, 0)",
+                stroke_width=20,
+                stroke_color="#000000",
+                background_color="#FFFFFF",
+                height=300,
+                width=300,
+                drawing_mode="freedraw",
+                return_image_data=True,
+                key="digit_canvas",
+            )
+        except Exception as error:
+            canvas_error = error
+            print(f"[canvas] initialization_failed={type(error).__name__}: {error}", flush=True)
+            st.error("The drawing canvas could not initialize. You can still upload an image to make a prediction.")
+            st.caption(f"Canvas details: {error}")
+        finally:
+            if not st.session_state.get("_canvas_setup_timing_logged", False):
+                print(
+                    f"[performance] canvas_component_setup_seconds="
+                    f"{time.perf_counter() - canvas_setup_started_at:.3f}",
+                    flush=True,
+                )
+                st.session_state["_canvas_setup_timing_logged"] = True
+
         predict_drawing = st.button(
             "Predict drawing",
             type="primary",
             use_container_width=True,
-            disabled=not model_ready,
+            disabled=not model_ready or canvas_error is not None,
             key="predict_drawing",
         )
 
@@ -286,14 +307,17 @@ with draw_col:
         try:
             canvas_image = getattr(canvas_result, "image_data", None)
             if canvas_image is None:
-                st.warning("The drawing canvas is still loading. Please try again.")
+                st.warning(
+                    "The canvas hasn’t sent an image yet. Wait a moment and retry, "
+                    "or upload an image instead."
+                )
             else:
                 rgb = np.asarray(canvas_image[:, :, :3], dtype=np.uint8)
                 if not np.any(rgb < 245):
                     st.warning("Draw a digit first, then select Predict drawing.")
                 else:
                     run_prediction(Image.fromarray(rgb), "drawing")
-        except (AttributeError, IndexError, TypeError, ValueError) as error:
+        except (AttributeError, IndexError, TypeError, ValueError, RuntimeError) as error:
             st.error("The canvas image could not be read. Clear the canvas, draw again, and retry.")
             st.caption(f"Canvas details: {error}")
         except Exception as error:
