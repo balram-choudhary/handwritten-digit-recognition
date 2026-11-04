@@ -1,6 +1,9 @@
-from pathlib import Path
 import html
 import math
+import time
+from pathlib import Path
+
+_APP_SCRIPT_STARTED_AT = time.perf_counter()
 
 import numpy as np
 import streamlit as st
@@ -72,9 +75,16 @@ def load_model():
         raise FileNotFoundError(f"Saved model not found: {MODEL_PATH.name}")
 
     # Keep the heavy TensorFlow import out of the initial page render.
+    model_load_started_at = time.perf_counter()
     from tensorflow import keras
 
-    return keras.models.load_model(MODEL_PATH, compile=False)
+    model = keras.models.load_model(MODEL_PATH, compile=False)
+    print(
+        f"[performance] saved_model_load_seconds="
+        f"{time.perf_counter() - model_load_started_at:.3f}",
+        flush=True,
+    )
+    return model
 
 
 def to_mnist_image(image: Image.Image) -> np.ndarray:
@@ -284,3 +294,11 @@ st.markdown(
     'Model: CNN with 10 output classes &nbsp;·&nbsp; Predictions work best with one clear, centered digit.</div>',
     unsafe_allow_html=True,
 )
+
+if not st.session_state.get("_startup_timing_logged", False):
+    print(
+        f"[performance] app_script_startup_seconds="
+        f"{time.perf_counter() - _APP_SCRIPT_STARTED_AT:.3f}",
+        flush=True,
+    )
+    st.session_state["_startup_timing_logged"] = True
