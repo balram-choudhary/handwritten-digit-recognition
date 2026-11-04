@@ -94,8 +94,7 @@ if model is None:
 left, right = st.columns([1, 1], gap="large")
 with left:
     st.subheader("Draw a digit")
-    st.caption("Use the black brush on the white canvas. Clear it to start again.")
-    canvas_result = st_canvas(
+        canvas_result = st_canvas(
         fill_color="rgba(255, 255, 255, 0)",
         stroke_width=22,
         stroke_color="#000000",
@@ -103,15 +102,27 @@ with left:
         height=280,
         width=280,
         drawing_mode="freedraw",
+        return_image_data=True,
         key="digit_canvas",
     )
-    if st.button("Predict drawing", type="primary", use_container_width=True):
-        if canvas_result.image_data is None or not np.any(canvas_result.image_data[:, :, 3] > 0):
-            st.warning("Draw a digit first.")
-        else:
-            drawn = Image.fromarray(canvas_result.image_data.astype("uint8"), mode="RGBA").convert("RGB")
-            st.session_state["digit_input"] = to_mnist_image(drawn)
 
+    if st.button("Predict drawing", type="primary", use_container_width=True):
+        canvas_image = (
+            canvas_result.image_data
+            if canvas_result is not None
+            else None
+        )
+
+        if canvas_image is None:
+            st.warning("Please draw a digit first.")
+        else:
+            rgb_image = canvas_image[:, :, :3].astype("uint8")
+
+            if not np.any(rgb_image < 245):
+                st.warning("Draw a digit first.")
+            else:
+                drawn = Image.fromarray(rgb_image, mode="RGB")
+                st.session_state["digit_input"] = to_mnist_image(drawn)
 with right:
     st.subheader("Or upload an image")
     st.caption("Use a clear image containing one digit. JPG and PNG are supported.")
