@@ -92,9 +92,12 @@ if model is None:
     st.stop()
 
 left, right = st.columns([1, 1], gap="large")
+
 with left:
     st.subheader("Draw a digit")
-        canvas_result = st_canvas(
+    st.caption("Use the black brush on the white canvas. Clear it to start again.")
+
+    canvas_result = st_canvas(
         fill_color="rgba(255, 255, 255, 0)",
         stroke_width=22,
         stroke_color="#000000",
@@ -123,6 +126,7 @@ with left:
             else:
                 drawn = Image.fromarray(rgb_image, mode="RGB")
                 st.session_state["digit_input"] = to_mnist_image(drawn)
+                
 with right:
     st.subheader("Or upload an image")
     st.caption("Use a clear image containing one digit. JPG and PNG are supported.")
