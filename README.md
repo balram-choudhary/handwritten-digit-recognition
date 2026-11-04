@@ -1,19 +1,16 @@
 # Handwritten Digit Recognition
 
-This project uses a convolutional neural network (CNN) to recognize a single handwritten digit from 0 to 9. It uses the MNIST dataset built into Keras and has a small web app where you can draw or upload a digit.
+A polished Streamlit app that recognizes one handwritten digit (0–9) with a CNN trained on Keras's MNIST dataset. Draw on the canvas or upload a PNG/JPG image.
 
-## Easiest way to start on Windows
+## Run on Windows
 
-1. Double-click `run_windows.bat` in this folder.
-2. The first time, it creates a Python environment in a short folder and installs the required packages. This avoids the Windows path length error that can happen when TensorFlow is installed inside this deeply nested project folder.
-3. A browser tab opens with the app. If the model has not been trained yet, click **Train / retrain model** in the sidebar and wait for training to finish.
-4. Draw one digit on the canvas and click **Predict drawing**, or upload a PNG/JPG image and click **Predict uploaded digit**.
+Double-click `run_windows.bat`. It creates a Python environment in a short path, installs the pinned dependencies, and starts the app. The first install takes longer because TensorFlow is a large package.
 
-The first setup needs an internet connection to download the packages and the MNIST dataset. Later launches reuse the environment and saved model.
+The saved `mnist_cnn.keras` model is used for predictions. If you need to create or retrain it, install the training-only plotting dependency with `python -m pip install -r requirements-training.txt`, then run `python train.py`. Visitors to the app cannot start training.
 
-## Start it from PowerShell instead
+## Run from PowerShell
 
-Open PowerShell in this folder and run:
+Open PowerShell in this folder:
 
 ```powershell
 python -m venv "$env:LOCALAPPDATA\mnist-digit-recognition-venv"
@@ -22,34 +19,22 @@ python -m pip install -r requirements.txt
 streamlit run app.py
 ```
 
-If you already made a virtual environment in this project folder and package installation failed with a Windows long path error, use `run_windows.bat` instead. It installs to the shorter environment path above.
+## Deploy on Streamlit Community Cloud
 
-## Train from the command line
+Put these project files at the root of a GitHub repository, including `app.py`, `requirements.txt`, and the trained `mnist_cnn.keras` file. Do not upload `.venv`. In Streamlit Community Cloud, create an app from the repository and choose `app.py` on the `main` branch.
 
-You can also train the model directly:
+`mnist_cnn.keras` is intentionally included in Git. Without it the deployed app displays a setup message and predictions stay disabled until you train and add the model.
 
-```powershell
-python train.py
-```
+## Project files
 
-Change the number of training passes through the MNIST training data with `--epochs`:
+- `app.py` — responsive dark UI, drawing and upload inputs, preprocessing, and prediction results
+- `train.py` — separate MNIST training, evaluation, and training-curve generation
+- `mnist_cnn.keras` — saved CNN used by the app
+- `requirements.txt` — pinned app dependencies used by Streamlit Community Cloud
+- `requirements-training.txt` — extra plotting dependency for local training
+- `project_report.md` — explanation of the dataset, CNN, and evaluation
+- `run_windows.bat` — Windows setup and launcher
 
-```powershell
-python train.py --epochs 8
-```
+## Notes
 
-The script evaluates the trained model on MNIST's test set and saves `mnist_cnn.keras` and `training_history.png` beside the scripts. The Streamlit app loads the saved model when it is present.
-
-## Files
-
-- `app.py` — web app for drawing, uploading, and predicting digits; can train the model from the sidebar
-- `train.py` — command-line training, evaluation, and learning-curve plotting
-- `requirements.txt` — Python packages needed by the project
-- `run_windows.bat` — Windows setup and app launcher
-- `project_report.md` — short project explanation suitable for a presentation or submission
-
-## How it works
-
-MNIST provides 60,000 training images and 10,000 test images. Each image is a 28 × 28 grayscale picture with a label from 0 to 9. The project scales pixel values to 0–1, trains a CNN with two convolution and pooling stages, and uses the final ten output values as probabilities for the ten digits. The app converts your drawing or upload to a centered 28 × 28 grayscale image before prediction.
-
-See `project_report.md` for the model and method in more detail. Predictions are estimates; clear images containing one digit tend to work best.
+The app imports TensorFlow and loads the model only when a prediction is requested, then caches the model for the running session. The image is converted to grayscale, foreground is isolated, and the digit is resized and centered to 28 × 28 before prediction. App code can reduce its own initialization work, but it cannot prevent Streamlit Community Cloud from sleeping or cold-starting an app.

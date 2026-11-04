@@ -41,7 +41,7 @@ Record the measured result here after running `python train.py`:
 
 ## 6. How to run
 
-On Windows, double-click `run_windows.bat`. Once the app opens, train the model if needed, then draw or upload one digit and request a prediction. Alternatively, use `python train.py` to train and evaluate from PowerShell.
+On Windows, double-click `run_windows.bat`. The app uses the saved `mnist_cnn.keras` model and does not train when visitors open it. To train or retrain separately, run `python train.py` from PowerShell, then include the resulting model file in the deployed GitHub repository.
 
 ## 7. Conclusion
 
