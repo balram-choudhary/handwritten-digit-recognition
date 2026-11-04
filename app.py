@@ -135,7 +135,6 @@ with draw_col:
             height=300,
             width=300,
             drawing_mode="freedraw",
-            display_toolbar=True,
             return_image_data=True,
             key="digit_canvas",
         )
