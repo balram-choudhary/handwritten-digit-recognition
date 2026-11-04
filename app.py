@@ -1,4 +1,6 @@
 from pathlib import Path
+import html
+import math
 
 import numpy as np
 import streamlit as st
@@ -33,15 +35,29 @@ st.markdown(
       .stButton > button[kind="primary"] { background: #1679a8; border-color: #35a9de; color: white; }
       .stButton > button[kind="primary"]:hover { background: #218fbe; }
       [data-testid="stFileUploader"] section { border-color: #33516c; border-radius: 12px; background: #0c141e; }
-      [data-testid="stProgress"] > div > div { background: #56bde8; }
       .prediction-card { min-height: 210px; display: flex; flex-direction: column; justify-content: center; align-items: center; border: 1px solid #28516a; border-radius: 16px; background: linear-gradient(145deg, #142b3a, #101823 72%); }
       .prediction-label { color: #9eb5c8; font-size: .75rem; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
       .prediction-digit { color: white; font-size: 6.2rem; font-weight: 750; line-height: 1.1; }
       .prediction-confidence { color: #8bd8fa; font-size: 1rem; }
+      .probability-chart { display: grid; gap: .55rem; padding: .85rem; border: 1px solid var(--line); border-radius: 12px; background: #0d151fcc; }
+      .probability-row { display: grid; grid-template-columns: 1.5rem minmax(0, 1fr) 6.2rem; align-items: center; gap: .7rem; min-width: 0; padding: .28rem .38rem; border: 1px solid transparent; border-radius: 8px; }
+      .probability-row--top { border-color: #28516a; background: #122533; }
+      .probability-digit-label { color: #b9c8d8; font-size: .88rem; font-weight: 650; text-align: left; }
+      .probability-row--top .probability-digit-label { color: #9deaff; }
+      .probability-track { display: block; position: relative; width: 100%; height: .62rem; overflow: hidden; border: 1px solid #2b3b4a; border-radius: 999px; background: #1c2a37; }
+      .probability-fill { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #238cb9, #51c4eb); transition: width .25s ease-out; }
+      .probability-fill--top { background: linear-gradient(90deg, #31b6e8, #8beaff); box-shadow: 0 0 10px #55d7ff55; }
+      .probability-value { color: #aab9c9; font-size: .8rem; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+      .probability-row--top .probability-value { color: #a1eaff; font-weight: 700; }
       .footer-note { border-top: 1px solid var(--line); margin-top: 2rem; padding-top: 1rem; color: var(--muted); font-size: .82rem; }
       @media (max-width: 700px) {
         .block-container { padding: 1.2rem 1rem 1.5rem; }
         .prediction-digit { font-size: 4.5rem; }
+        .probability-chart { gap: .38rem; padding: .65rem; }
+        .probability-row { grid-template-columns: 1.25rem minmax(0, 1fr) 5.8rem; gap: .48rem; padding: .25rem .25rem; }
+        .probability-track { height: .52rem; }
+        .probability-digit-label { font-size: .82rem; }
+        .probability-value { font-size: .74rem; }
       }
     </style>
     """,
@@ -83,6 +99,45 @@ def to_mnist_image(image: Image.Image) -> np.ndarray:
     canvas = Image.new("L", (28, 28), 0)
     canvas.paste(digit, ((28 - digit.width) // 2, (28 - digit.height) // 2))
     return np.asarray(canvas, dtype=np.float32) / 255.0
+
+
+def build_probability_chart(scores: np.ndarray) -> str:
+    """Render validated model probabilities as a lightweight HTML/CSS chart."""
+    values = [float(score) for score in scores]
+    if len(values) != 10:
+        raise ValueError("Expected one probability for each digit from 0 to 9.")
+    if any(not math.isfinite(value) or value < 0.0 or value > 1.0 for value in values):
+        raise ValueError("Class probabilities must be finite values between 0 and 1.")
+    if not math.isclose(sum(values), 1.0, rel_tol=1e-4, abs_tol=1e-6):
+        raise ValueError("Class probabilities must add up to 1.")
+
+    ranked_digits = sorted(range(10), key=lambda digit: (-values[digit], digit))
+    top_digit = ranked_digits[0]
+    rows = []
+    for digit in ranked_digits:
+        probability = values[digit]
+        digit_label = html.escape(str(digit), quote=True)
+        percent_label = html.escape(f"{probability * 100.0:.9g}%", quote=True)
+        bar_width = probability * 100.0
+        min_width = "2px" if probability > 0.0 else "0px"
+        row_class = "probability-row probability-row--top" if digit == top_digit else "probability-row"
+        fill_class = "probability-fill probability-fill--top" if digit == top_digit else "probability-fill"
+        rows.append(
+            f'<div class="{row_class}" role="listitem" '
+            f'aria-label="Digit {digit_label}: {percent_label}">'
+            f'<span class="probability-digit-label">{digit_label}</span>'
+            f'<span class="probability-track" aria-hidden="true">'
+            f'<span class="{fill_class}" style="width: {bar_width:.9f}%; min-width: {min_width};"></span>'
+            f'</span>'
+            f'<span class="probability-value">{percent_label}</span>'
+            f'</div>'
+        )
+
+    return (
+        '<div class="probability-chart" role="list" aria-label="Prediction probabilities by digit">'
+        + "".join(rows)
+        + "</div>"
+    )
 
 
 def run_prediction(image: Image.Image, source: str) -> None:
@@ -222,9 +277,7 @@ if prediction:
         st.caption("The input is converted to grayscale, centered, and scaled to 0–1.")
     with probabilities_col:
         st.write("**Probability by digit**")
-        for class_id in np.argsort(scores)[::-1]:
-            probability = float(scores[class_id])
-            st.progress(probability, text=f"{class_id}  ·  {probability:.1%}")
+        st.markdown(build_probability_chart(scores), unsafe_allow_html=True)
 
 st.markdown(
     '<div class="footer-note">Dataset: MNIST (28 × 28 grayscale digits) &nbsp;·&nbsp; '
